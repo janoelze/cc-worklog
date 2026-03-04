@@ -7,6 +7,7 @@ import {
   splitIntoChunks,
   TOKEN_LIMITS,
 } from "./tokenizer.js";
+import { getConfig } from "./config.js";
 
 const SYSTEM_PROMPT = `You are analyzing a Claude Code session transcript. Extract a concise summary.
 
@@ -17,8 +18,7 @@ Output JSON:
   "whatWasDone": ["List of actions taken"],
   "filesChanged": [{"path": "...", "change": "brief description"}],
   "decisions": [{"decision": "...", "reasoning": "..."}],
-  "errors": ["Errors encountered and how resolved"],
-  "commands": ["Notable commands run"]
+  "errors": ["Errors encountered and how resolved"]
 }
 
 Focus on:
@@ -37,8 +37,7 @@ Output JSON:
   "whatWasDone": ["Actions taken in this portion"],
   "filesChanged": [{"path": "...", "change": "brief description"}],
   "decisions": [{"decision": "...", "reasoning": "..."}],
-  "errors": ["Errors encountered"],
-  "commands": ["Commands run"]
+  "errors": ["Errors encountered"]
 }
 
 Only include information present in this chunk. Be concise.`;
@@ -53,8 +52,7 @@ Output JSON:
   "whatWasDone": ["Combined list of actions taken"],
   "filesChanged": [{"path": "...", "change": "brief description"}],
   "decisions": [{"decision": "...", "reasoning": "..."}],
-  "errors": ["Errors encountered and how resolved"],
-  "commands": ["Notable commands run"]
+  "errors": ["Errors encountered and how resolved"]
 }
 
 Deduplicate file changes. Synthesize the overall narrative.`;
@@ -67,7 +65,6 @@ interface PartialSummary {
   filesChanged?: { path: string; change: string }[];
   decisions?: { decision: string; reasoning: string }[];
   errors?: string[];
-  commands?: string[];
 }
 
 /**
@@ -75,10 +72,11 @@ interface PartialSummary {
  */
 async function callOpenAI(
   systemPrompt: string,
-  userContent: string
+  userContent: string,
+  model: string
 ): Promise<string> {
   const completion = await client.chat.completions.create({
-    model: "gpt-4o-mini",
+    model,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userContent },
@@ -96,8 +94,8 @@ async function callOpenAI(
 /**
  * Summarize using single API call (for sessions that fit in context)
  */
-async function summarizeSinglePass(transcript: string): Promise<SessionSummary> {
-  const content = await callOpenAI(SYSTEM_PROMPT, transcript);
+async function summarizeSinglePass(transcript: string, model: string): Promise<SessionSummary> {
+  const content = await callOpenAI(SYSTEM_PROMPT, transcript, model);
   const summary = JSON.parse(content) as SessionSummary;
 
   return {
@@ -107,7 +105,6 @@ async function summarizeSinglePass(transcript: string): Promise<SessionSummary> 
     filesChanged: summary.filesChanged || [],
     decisions: summary.decisions || [],
     errors: summary.errors || [],
-    commands: summary.commands || [],
   };
 }
 
@@ -116,7 +113,8 @@ async function summarizeSinglePass(transcript: string): Promise<SessionSummary> 
  */
 async function summarizeMapReduce(
   transcript: string,
-  session: ParsedSession
+  session: ParsedSession,
+  model: string
 ): Promise<SessionSummary> {
   const chunks = splitIntoChunks(transcript);
   console.log(`    (map-reduce: ${chunks.length} chunks)`);
@@ -129,7 +127,7 @@ async function summarizeMapReduce(
     );
 
     try {
-      const content = await callOpenAI(systemPrompt, chunk);
+      const content = await callOpenAI(systemPrompt, chunk, model);
       return JSON.parse(content) as PartialSummary;
     } catch {
       return {} as PartialSummary;
@@ -149,7 +147,7 @@ async function summarizeMapReduce(
     2
   );
 
-  const reduceContent = await callOpenAI(REDUCE_SYSTEM_PROMPT, combinedPartials);
+  const reduceContent = await callOpenAI(REDUCE_SYSTEM_PROMPT, combinedPartials, model);
   const finalSummary = JSON.parse(reduceContent) as SessionSummary;
 
   return {
@@ -159,7 +157,6 @@ async function summarizeMapReduce(
     filesChanged: finalSummary.filesChanged || [],
     decisions: finalSummary.decisions || [],
     errors: finalSummary.errors || [],
-    commands: finalSummary.commands || [],
   };
 }
 
@@ -170,11 +167,14 @@ async function summarizeMapReduce(
 export async function summarizeSession(
   session: ParsedSession
 ): Promise<SessionSummary> {
+  const config = await getConfig();
+  const model = config.openai.model;
+
   // Build transcript with aggressive filtering
   let transcript = buildTranscript(session);
   let tokenCount = countTokens(transcript);
 
-  console.log(`    (${tokenCount} tokens)`);
+  console.log(`    (${tokenCount} tokens, model: ${model})`);
 
   // If still too long, try minimal transcript
   if (exceedsTokenLimit(transcript)) {
@@ -191,11 +191,11 @@ export async function summarizeSession(
       maxAssistantLength: 200,
       maxConversationTurns: 100,
     });
-    return summarizeMapReduce(fullTranscript, session);
+    return summarizeMapReduce(fullTranscript, session, model);
   }
 
   try {
-    return await summarizeSinglePass(transcript);
+    return await summarizeSinglePass(transcript, model);
   } catch (error) {
     // Fallback if API call or parsing fails
     console.error("Summarization failed:", (error as Error).message);
@@ -209,7 +209,6 @@ export async function summarizeSession(
       })),
       decisions: [],
       errors: [],
-      commands: session.commandsRun.map((c) => c.command.slice(0, 100)),
     };
   }
 }
