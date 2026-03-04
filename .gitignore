@@ -1,0 +1,11 @@
+# Dependencies
+node_modules/
+
+# Output
+worklog/
+
+# OS
+.DS_Store
+
+# Bun
+bun.lockb

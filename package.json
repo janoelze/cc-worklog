@@ -1,0 +1,23 @@
+{
+  "name": "cc-worklog",
+  "version": "0.1.0",
+  "description": "Automatic work log generator from Claude Code sessions",
+  "type": "module",
+  "bin": {
+    "cc-worklog": "./src/cli.ts"
+  },
+  "scripts": {
+    "start": "bun run src/cli.ts",
+    "dev": "bun --watch src/cli.ts"
+  },
+  "keywords": [
+    "claude-code",
+    "worklog",
+    "session-summary"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "gpt-tokenizer": "^2",
+    "openai": "^4"
+  }
+}
