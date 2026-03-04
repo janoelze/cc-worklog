@@ -14,6 +14,15 @@ import {
   loadState,
   markProcessed,
 } from "./writer.js";
+import {
+  getConfig,
+  getConfigValue,
+  setConfigValue,
+  unsetConfigValue,
+  getConfigPath,
+  getConfigWithSources,
+  setRuntimeOverrides,
+} from "./config.js";
 
 const { values, positionals } = parseArgs({
   args: Bun.argv.slice(2),
@@ -24,8 +33,16 @@ const { values, positionals } = parseArgs({
     force: { type: "boolean", short: "f" },
     session: { type: "string", short: "s" },
     dry: { type: "boolean", short: "d" },
+    "output-dir": { type: "string", short: "o" },
+    model: { type: "string", short: "m" },
   },
   allowPositionals: true,
+});
+
+// Apply runtime overrides from CLI flags
+setRuntimeOverrides({
+  outputDirectory: values["output-dir"],
+  model: values.model,
 });
 
 const command = positionals[0] || "help";
@@ -41,6 +58,9 @@ async function main() {
     case "test":
       await testCommand();
       break;
+    case "config":
+      await configCommand();
+      break;
     case "help":
     default:
       showHelp();
@@ -55,23 +75,40 @@ Usage:
   cc-worklog process [options]    Process sessions and generate summaries
   cc-worklog list                 List unprocessed sessions
   cc-worklog test -s <id>         Test summarization for a specific session
+  cc-worklog config [cmd] [args]  View or modify configuration
   cc-worklog help                 Show this help
 
 Options:
-  -a, --all           Process all sessions (including already processed)
-  -p, --project       Filter by project name
-  -f, --force         Process sessions even if still active
-  -s, --session <id>  Specify session ID (full or partial)
-  -d, --dry           Dry run - print output without saving
-  -h, --help          Show help
+  -a, --all              Process all sessions (including already processed)
+  -p, --project <name>   Filter by project name
+  -f, --force            Process sessions even if still active
+  -s, --session <id>     Specify session ID (full or partial)
+  -d, --dry              Dry run - print output without saving
+  -o, --output-dir <dir> Override output directory for this run
+  -m, --model <model>    Override OpenAI model for this run
+  -h, --help             Show help
+
+Config Commands:
+  cc-worklog config                      Show all configuration
+  cc-worklog config get <key>            Get a config value
+  cc-worklog config set <key> <value>    Set a config value
+  cc-worklog config unset <key>          Reset a config value to default
+  cc-worklog config path                 Show config file path
+
+Config Keys:
+  output.directory    Where worklogs are saved (default: ~/.cc-worklog/output)
+  state.directory     Where state is stored (default: ~/.cc-worklog)
+  openai.model        Model for summarization (default: gpt-4o-mini)
+  openai.apiKey       OpenAI API key (default: $OPENAI_API_KEY)
 
 Examples:
-  cc-worklog process              # Process all closed, unprocessed sessions
-  cc-worklog process --all        # Reprocess everything
-  cc-worklog process -p myapp     # Process only myapp sessions
-  cc-worklog list                 # Show pending sessions
-  cc-worklog test -s a1b2c3       # Test summarization for session a1b2c3
-  cc-worklog test -s a1b2c3 -d    # Dry run (no file written)
+  cc-worklog process                     # Process all closed, unprocessed sessions
+  cc-worklog process --all               # Reprocess everything
+  cc-worklog process -p myapp            # Process only myapp sessions
+  cc-worklog process -o ~/Vault/Logs     # Output to custom directory
+  cc-worklog list                        # Show pending sessions
+  cc-worklog test -s a1b2c3 -d           # Dry run (no file written)
+  cc-worklog config set output.directory ~/Obsidian/Vault/Worklogs
 `);
 }
 
@@ -245,6 +282,83 @@ async function testCommand() {
     console.log(`\nWritten to: ${outputFile}`);
   } else {
     console.log("\n(dry run - no file written)");
+  }
+}
+
+/**
+ * Config command - view and modify configuration
+ */
+async function configCommand() {
+  const subcommand = positionals[1];
+  const key = positionals[2];
+  const value = positionals[3];
+
+  switch (subcommand) {
+    case "get": {
+      if (!key) {
+        console.error("Error: config get requires a key");
+        console.error("Usage: cc-worklog config get <key>");
+        process.exit(1);
+      }
+      const configValue = await getConfigValue(key);
+      if (configValue === undefined) {
+        console.error(`Error: Unknown config key: ${key}`);
+        process.exit(1);
+      }
+      console.log(configValue);
+      break;
+    }
+
+    case "set": {
+      if (!key || !value) {
+        console.error("Error: config set requires a key and value");
+        console.error("Usage: cc-worklog config set <key> <value>");
+        process.exit(1);
+      }
+      try {
+        await setConfigValue(key, value);
+        const newValue = await getConfigValue(key);
+        console.log(`✓ ${key} set to ${newValue}`);
+      } catch (error) {
+        console.error(`Error: ${(error as Error).message}`);
+        process.exit(1);
+      }
+      break;
+    }
+
+    case "unset": {
+      if (!key) {
+        console.error("Error: config unset requires a key");
+        console.error("Usage: cc-worklog config unset <key>");
+        process.exit(1);
+      }
+      try {
+        await unsetConfigValue(key);
+        const defaultValue = await getConfigValue(key);
+        console.log(`✓ ${key} reset to default (${defaultValue})`);
+      } catch (error) {
+        console.error(`Error: ${(error as Error).message}`);
+        process.exit(1);
+      }
+      break;
+    }
+
+    case "path": {
+      console.log(getConfigPath());
+      break;
+    }
+
+    default: {
+      // Show all config
+      const entries = await getConfigWithSources();
+      console.log("Configuration:\n");
+      for (const entry of entries) {
+        const sourceLabel = entry.source === "default" ? "" : ` (${entry.source})`;
+        const valueDisplay = entry.value || "(not set)";
+        console.log(`  ${entry.key.padEnd(20)} ${valueDisplay}${sourceLabel}`);
+      }
+      console.log(`\nConfig file: ${getConfigPath()}`);
+    }
   }
 }
 
