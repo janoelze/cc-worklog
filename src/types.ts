@@ -79,7 +79,6 @@ export interface SessionSummary {
   filesChanged: FileChange[];
   decisions: Decision[];
   errors: string[];
-  commands: string[];
 }
 
 // State management
