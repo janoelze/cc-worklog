@@ -169,6 +169,10 @@ cc-worklog retry <id>       # Retry specific session
 cc-worklog retry --all      # Retry all
 ```
 
+## Credits
+
+Inspired by [cc-obsidian-mem](https://github.com/Z-M-Huang/cc-obsidian-mem).
+
 ## License
 
 MIT
