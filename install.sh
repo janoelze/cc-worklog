@@ -29,7 +29,13 @@ echo "Installing cc-worklog (${TARGET})..."
 mkdir -p "$INSTALL_DIR"
 
 # Download and extract
-curl -fsSL "$URL" | gunzip > "$INSTALL_DIR/cc-worklog"
+if command -v curl >/dev/null; then
+  curl -fsSL "$URL" | gunzip > "$INSTALL_DIR/cc-worklog"
+elif command -v wget >/dev/null; then
+  wget -qO- "$URL" | gunzip > "$INSTALL_DIR/cc-worklog"
+else
+  echo "curl or wget required"; exit 1
+fi
 chmod +x "$INSTALL_DIR/cc-worklog"
 
 # Verify
