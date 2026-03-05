@@ -87,6 +87,9 @@ async function main() {
     case "retry":
       await retryCommand();
       break;
+    case "search":
+      await searchCommand();
+      break;
     case "help":
     default:
       showHelp();
@@ -105,6 +108,7 @@ Usage:
   cc-worklog daemon <action>      Manage background daemon
   cc-worklog failed               List failed sessions
   cc-worklog retry [id]           Retry failed sessions
+  cc-worklog search <query>       Search worklogs
   cc-worklog help                 Show this help
 
 Options:
@@ -146,6 +150,7 @@ Examples:
   cc-worklog daemon install              # Install as system service
   cc-worklog failed                      # Show sessions that failed to process
   cc-worklog retry --all                 # Retry all failed sessions
+  cc-worklog search "auth bug"           # Search worklogs for "auth bug"
   cc-worklog config set output.directory ~/Obsidian/Vault/Worklogs
 `);
 }
@@ -543,6 +548,128 @@ async function retryCommand() {
     console.log("Run 'cc-worklog process' or start the daemon to process it.");
   } else {
     console.log(`No failed session found matching: ${sessionId}`);
+  }
+}
+
+/**
+ * Search command - search worklogs for a query
+ */
+async function searchCommand() {
+  const query = positionals.slice(1).join(" ");
+
+  if (!query) {
+    console.log("Usage: cc-worklog search <query>");
+    console.log("");
+    console.log("Examples:");
+    console.log('  cc-worklog search "auth bug"');
+    console.log("  cc-worklog search refactor");
+    console.log("  cc-worklog search -p myapp database");
+    process.exit(1);
+  }
+
+  const config = await getConfig();
+  const outputDir = config.output.directory;
+
+  // Find all markdown files
+  const { readdir, readFile } = await import("fs/promises");
+  const { join } = await import("path");
+
+  let projectDirs: string[];
+  try {
+    projectDirs = await readdir(outputDir);
+  } catch {
+    console.log("No worklogs found. Run 'cc-worklog process' first.");
+    return;
+  }
+
+  const results: Array<{
+    file: string;
+    project: string;
+    title: string;
+    date: string;
+    matches: string[];
+  }> = [];
+
+  const queryLower = query.toLowerCase();
+  const projectFilter = values.project?.toLowerCase();
+
+  for (const project of projectDirs) {
+    // Filter by project if specified
+    if (projectFilter && !project.toLowerCase().includes(projectFilter)) {
+      continue;
+    }
+
+    const projectPath = join(outputDir, project);
+    let files: string[];
+    try {
+      files = await readdir(projectPath);
+    } catch {
+      continue;
+    }
+
+    for (const file of files) {
+      if (!file.endsWith(".md")) continue;
+
+      const filePath = join(projectPath, file);
+      const content = await readFile(filePath, "utf-8");
+
+      // Search in content
+      const lines = content.split("\n");
+      const matchingLines: string[] = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].toLowerCase().includes(queryLower)) {
+          // Get context: the matching line, trimmed
+          const line = lines[i].trim();
+          if (line && !line.startsWith("---") && !line.startsWith("**Date:") && !line.startsWith("**Session:")) {
+            matchingLines.push(line);
+          }
+        }
+      }
+
+      if (matchingLines.length > 0) {
+        // Extract title from content
+        const titleMatch = content.match(/^# (.+)$/m);
+        const title = titleMatch ? titleMatch[1] : file;
+
+        // Extract date from filename
+        const dateMatch = file.match(/^(\d{4}-\d{2}-\d{2})/);
+        const date = dateMatch ? dateMatch[1] : "";
+
+        results.push({
+          file: filePath,
+          project,
+          title,
+          date,
+          matches: matchingLines.slice(0, 3), // Limit to 3 matches per file
+        });
+      }
+    }
+  }
+
+  if (results.length === 0) {
+    console.log(`No results found for "${query}"`);
+    return;
+  }
+
+  // Sort by date descending
+  results.sort((a, b) => b.date.localeCompare(a.date));
+
+  console.log(`Found ${results.length} worklog(s) matching "${query}":\n`);
+
+  for (const result of results) {
+    console.log(`${result.date}  ${result.project}`);
+    console.log(`  ${result.title}`);
+    for (const match of result.matches) {
+      // Highlight the query in the match
+      const highlighted = match.replace(
+        new RegExp(`(${query})`, "gi"),
+        "\x1b[1m$1\x1b[0m"
+      );
+      console.log(`    ${highlighted.slice(0, 100)}${match.length > 100 ? "..." : ""}`);
+    }
+    console.log(`  -> ${result.file}`);
+    console.log("");
   }
 }
 

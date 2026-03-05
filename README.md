@@ -126,6 +126,22 @@ cc-worklog process -o ~/Desktop -m gpt-4-turbo
 -m, --model            Override OpenAI model
 ```
 
+## Search
+
+```sh
+cc-worklog search "auth bug"        # Search all worklogs
+cc-worklog search -p myapp oauth    # Search within project
+```
+
+Output shows matching worklogs with context:
+
+```
+2024-03-04  myapp
+  Fix Authentication Bug
+    Fixed JWT token validation that was causing **auth** errors...
+  -> ~/.cc-worklog/output/myapp/2024-03-04_49d6e4_fix-auth-bug.md
+```
+
 ## Failed Sessions
 
 ```sh

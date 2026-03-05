@@ -9,3 +9,4 @@ worklog/
 
 # Bun
 bun.lockb
+dist/

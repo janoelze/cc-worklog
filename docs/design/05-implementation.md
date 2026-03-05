@@ -336,7 +336,7 @@ cc-worklog/
 - [ ] CLI commands: start, stop, status, logs
 
 **Phase 3: Polish**
-- [ ] Better error handling
-- [ ] Retry failed sessions
-- [ ] Filter by date/project
-- [ ] Search command
+- [x] Better error handling
+- [x] Retry failed sessions
+- [x] Filter by project
+- [x] Search command
