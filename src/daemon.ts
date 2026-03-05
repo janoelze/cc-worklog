@@ -447,15 +447,16 @@ export async function startDaemon(): Promise<{ pid: number }> {
 
   child.unref();
 
-  // Wait a moment and verify it started
-  await sleep(1000);
-  const newStatus = await getDaemonStatus();
-
-  if (!newStatus.running) {
-    throw new Error("Daemon failed to start. Check logs with: cc-worklog daemon logs");
+  // Wait for daemon to initialize and write PID file
+  for (let i = 0; i < 10; i++) {
+    await sleep(500);
+    const newStatus = await getDaemonStatus();
+    if (newStatus.running) {
+      return { pid: child.pid! };
+    }
   }
 
-  return { pid: child.pid! };
+  throw new Error("Daemon failed to start. Check logs with: cc-worklog daemon logs");
 }
 
 /**
