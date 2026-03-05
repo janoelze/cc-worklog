@@ -1,11 +1,12 @@
 import { execSync } from "child_process";
 import { existsSync } from "fs";
-import { mkdir, unlink, writeFile } from "fs/promises";
+import { mkdir, unlink, writeFile, chmod } from "fs/promises";
 import { dirname, resolve } from "path";
 import { homedir, platform } from "os";
 
 const LAUNCHD_PLIST_PATH = `${homedir()}/Library/LaunchAgents/com.cc-worklog.plist`;
 const SYSTEMD_SERVICE_PATH = `${homedir()}/.config/systemd/user/cc-worklog.service`;
+const ENV_FILE_PATH = `${homedir()}/.cc-worklog/env`;
 
 /**
  * Detect platform
@@ -18,24 +19,25 @@ export function getPlatform(): "macos" | "linux" | "unsupported" {
 }
 
 /**
+ * Write environment file with secure permissions
+ */
+async function writeEnvFile(apiKey: string): Promise<void> {
+  const envDir = dirname(ENV_FILE_PATH);
+  await mkdir(envDir, { recursive: true });
+  await writeFile(ENV_FILE_PATH, `OPENAI_API_KEY=${apiKey}\n`, "utf-8");
+  await chmod(ENV_FILE_PATH, 0o600); // Owner read/write only
+}
+
+/**
  * Generate launchd plist content
+ * Note: On macOS, launchd doesn't support EnvironmentFile, so we use a wrapper script
  */
 function generatePlist(): string {
   const bunPath = process.execPath;
   const scriptPath = resolve(process.argv[1]);
   const home = homedir();
-  const apiKey = process.env.OPENAI_API_KEY || "";
 
-  // Warn if no API key
-  if (!apiKey) {
-    console.warn(
-      "Warning: OPENAI_API_KEY not set. The daemon will fail to summarize sessions."
-    );
-    console.warn(
-      "Set it in your shell config and re-run install, or edit the plist manually.\n"
-    );
-  }
-
+  // The plist will source the env file via a shell wrapper
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -46,10 +48,9 @@ function generatePlist(): string {
 
   <key>ProgramArguments</key>
   <array>
-    <string>${bunPath}</string>
-    <string>${scriptPath}</string>
-    <string>daemon</string>
-    <string>run</string>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>. "${home}/.cc-worklog/env" 2>/dev/null; exec "${bunPath}" "${scriptPath}" daemon run</string>
   </array>
 
   <key>RunAtLoad</key>
@@ -73,8 +74,6 @@ function generatePlist(): string {
     <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
     <key>HOME</key>
     <string>${home}</string>
-    <key>OPENAI_API_KEY</key>
-    <string>${apiKey}</string>
   </dict>
 
   <key>ProcessType</key>
@@ -96,21 +95,10 @@ function generateSystemdUnit(): string {
   const bunPath = process.execPath;
   const scriptPath = resolve(process.argv[1]);
   const home = homedir();
-  const apiKey = process.env.OPENAI_API_KEY || "";
-
-  // Warn if no API key
-  if (!apiKey) {
-    console.warn(
-      "Warning: OPENAI_API_KEY not set. The daemon will fail to summarize sessions."
-    );
-    console.warn(
-      "Set it in your shell config and re-run install, or edit the service file manually.\n"
-    );
-  }
 
   return `[Unit]
 Description=cc-worklog - Claude Code session summarizer
-Documentation=https://github.com/yourname/cc-worklog
+Documentation=https://github.com/janoelze/cc-worklog
 After=network.target
 
 [Service]
@@ -119,10 +107,10 @@ ExecStart=${bunPath} ${scriptPath} daemon run
 Restart=always
 RestartSec=10
 
-# Environment
+# Environment - load API key from secure file
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 Environment=HOME=${home}
-Environment=OPENAI_API_KEY=${apiKey}
+EnvironmentFile=${home}/.cc-worklog/env
 
 # Resource limits
 Nice=10
@@ -146,6 +134,22 @@ async function installServiceMacOS(): Promise<void> {
     console.log("Service already installed.");
     console.log("To reinstall, run: cc-worklog daemon uninstall && cc-worklog daemon install\n");
     return;
+  }
+
+  const apiKey = process.env.OPENAI_API_KEY || "";
+
+  // Warn if no API key
+  if (!apiKey) {
+    console.warn(
+      "Warning: OPENAI_API_KEY not set. The daemon will fail to summarize sessions."
+    );
+    console.warn(
+      "Set it with: echo 'OPENAI_API_KEY=your-key' > ~/.cc-worklog/env\n"
+    );
+  } else {
+    // Write API key to secure env file
+    await writeEnvFile(apiKey);
+    console.log(`Created: ${ENV_FILE_PATH} (chmod 600)`);
   }
 
   // Ensure directory exists
@@ -203,6 +207,22 @@ async function installServiceLinux(): Promise<void> {
     console.log("Service already installed.");
     console.log("To reinstall, run: cc-worklog daemon uninstall && cc-worklog daemon install\n");
     return;
+  }
+
+  const apiKey = process.env.OPENAI_API_KEY || "";
+
+  // Warn if no API key
+  if (!apiKey) {
+    console.warn(
+      "Warning: OPENAI_API_KEY not set. The daemon will fail to summarize sessions."
+    );
+    console.warn(
+      "Set it with: echo 'OPENAI_API_KEY=your-key' > ~/.cc-worklog/env\n"
+    );
+  } else {
+    // Write API key to secure env file
+    await writeEnvFile(apiKey);
+    console.log(`Created: ${ENV_FILE_PATH} (chmod 600)`);
   }
 
   // Ensure directory exists

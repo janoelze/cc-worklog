@@ -40,10 +40,13 @@ import {
   getPlatform,
 } from "./daemon-service.js";
 
+const VERSION = "0.1.0";
+
 const { values, positionals } = parseArgs({
   args: Bun.argv.slice(2),
   options: {
     help: { type: "boolean", short: "h" },
+    version: { type: "boolean", short: "v" },
     all: { type: "boolean", short: "a" },
     project: { type: "string", short: "p" },
     force: { type: "boolean", short: "f" },
@@ -55,6 +58,12 @@ const { values, positionals } = parseArgs({
   },
   allowPositionals: true,
 });
+
+// Handle --version flag early
+if (values.version) {
+  console.log(`cc-worklog ${VERSION}`);
+  process.exit(0);
+}
 
 // Apply runtime overrides from CLI flags
 setRuntimeOverrides({
@@ -90,6 +99,9 @@ async function main() {
     case "search":
       await searchCommand();
       break;
+    case "version":
+      console.log(`cc-worklog ${VERSION}`);
+      break;
     case "help":
     default:
       showHelp();
@@ -98,7 +110,7 @@ async function main() {
 
 function showHelp() {
   console.log(`
-cc-worklog - Generate work logs from Claude Code sessions
+cc-worklog ${VERSION} - Generate work logs from Claude Code sessions
 
 Usage:
   cc-worklog process [options]    Process sessions and generate summaries
@@ -109,6 +121,7 @@ Usage:
   cc-worklog failed               List failed sessions
   cc-worklog retry [id]           Retry failed sessions
   cc-worklog search <query>       Search worklogs
+  cc-worklog version              Show version
   cc-worklog help                 Show this help
 
 Options:
@@ -120,6 +133,7 @@ Options:
   -o, --output-dir <dir> Override output directory for this run
   -m, --model <model>    Override OpenAI model for this run
   -n, --lines <n>        Number of log lines to show (default: 50)
+  -v, --version          Show version
   -h, --help             Show help
 
 Daemon Commands:
@@ -661,9 +675,10 @@ async function searchCommand() {
     console.log(`${result.date}  ${result.project}`);
     console.log(`  ${result.title}`);
     for (const match of result.matches) {
-      // Highlight the query in the match
+      // Highlight the query in the match (escape regex special chars)
+      const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const highlighted = match.replace(
-        new RegExp(`(${query})`, "gi"),
+        new RegExp(`(${escapedQuery})`, "gi"),
         "\x1b[1m$1\x1b[0m"
       );
       console.log(`    ${highlighted.slice(0, 100)}${match.length > 100 ? "..." : ""}`);

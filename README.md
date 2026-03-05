@@ -7,29 +7,56 @@ Claude Code sessions are ephemeral. When you close a session, the context is gon
 ## Install
 
 ```sh
-bun install
+curl -fsSL https://raw.githubusercontent.com/janoelze/cc-worklog/master/install.sh | sh
 ```
 
-Requires `OPENAI_API_KEY` in your environment.
+This downloads the pre-built binary to `~/.local/bin`. Make sure it's in your PATH:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Requires `OPENAI_API_KEY` in your environment:
+
+```sh
+export OPENAI_API_KEY=your-key
+```
+
+### Uninstall
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/janoelze/cc-worklog/master/uninstall.sh | sh
+# Or with --purge to also remove ~/.cc-worklog config/data:
+curl -fsSL https://raw.githubusercontent.com/janoelze/cc-worklog/master/uninstall.sh | sh -s -- --purge
+```
+
+### From Source
+
+```sh
+git clone https://github.com/janoelze/cc-worklog.git
+cd cc-worklog
+bun install
+bun run src/cli.ts --help
+```
 
 ## Usage
 
 Process all closed sessions:
 
 ```sh
-bun run src/cli.ts process
+cc-worklog process
 ```
 
 List unprocessed sessions:
 
 ```sh
-bun run src/cli.ts list
+cc-worklog list
 ```
 
 Run as a background daemon:
 
 ```sh
-bun run src/cli.ts daemon start
+cc-worklog daemon start
 ```
 
 ## Output
@@ -124,6 +151,8 @@ cc-worklog process -o ~/Desktop -m gpt-4-turbo
 -f, --force            Process active sessions
 -o, --output-dir       Override output directory
 -m, --model            Override OpenAI model
+-v, --version          Show version
+-h, --help             Show help
 ```
 
 ## Search

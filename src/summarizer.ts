@@ -9,6 +9,33 @@ import {
 } from "./tokenizer.js";
 import { getConfig } from "./config.js";
 
+let openaiClient: OpenAI | null = null;
+
+/**
+ * Get or initialize the OpenAI client
+ * Validates that API key is present before making any calls
+ */
+async function getOpenAIClient(): Promise<OpenAI> {
+  if (openaiClient) {
+    return openaiClient;
+  }
+
+  const config = await getConfig();
+  const apiKey = config.openai.apiKey || process.env.OPENAI_API_KEY;
+
+  if (!apiKey) {
+    throw new Error(
+      "OPENAI_API_KEY not set. Configure it with:\n" +
+      "  export OPENAI_API_KEY=your-key\n" +
+      "  # or\n" +
+      "  cc-worklog config set openai.apiKey your-key"
+    );
+  }
+
+  openaiClient = new OpenAI({ apiKey });
+  return openaiClient;
+}
+
 const SYSTEM_PROMPT = `You are analyzing a Claude Code session transcript. Extract a concise summary.
 
 Output JSON:
@@ -57,9 +84,6 @@ Output JSON:
 
 Deduplicate file changes. Synthesize the overall narrative.`;
 
-// Initialize OpenAI client (uses OPENAI_API_KEY env var)
-const client = new OpenAI();
-
 interface PartialSummary {
   whatWasDone?: string[];
   filesChanged?: { path: string; change: string }[];
@@ -75,6 +99,8 @@ async function callOpenAI(
   userContent: string,
   model: string
 ): Promise<string> {
+  const client = await getOpenAIClient();
+
   const completion = await client.chat.completions.create({
     model,
     messages: [
@@ -92,11 +118,24 @@ async function callOpenAI(
 }
 
 /**
+ * Safely parse JSON response from OpenAI
+ */
+function parseJsonResponse<T>(content: string, context: string): T {
+  try {
+    return JSON.parse(content) as T;
+  } catch (error) {
+    throw new Error(
+      `Failed to parse OpenAI response (${context}): ${content.slice(0, 200)}...`
+    );
+  }
+}
+
+/**
  * Summarize using single API call (for sessions that fit in context)
  */
 async function summarizeSinglePass(transcript: string, model: string): Promise<SessionSummary> {
   const content = await callOpenAI(SYSTEM_PROMPT, transcript, model);
-  const summary = JSON.parse(content) as SessionSummary;
+  const summary = parseJsonResponse<SessionSummary>(content, "single-pass summary");
 
   return {
     title: summary.title || "Untitled Session",
@@ -128,7 +167,7 @@ async function summarizeMapReduce(
 
     try {
       const content = await callOpenAI(systemPrompt, chunk, model);
-      return JSON.parse(content) as PartialSummary;
+      return parseJsonResponse<PartialSummary>(content, `map chunk ${i + 1}`);
     } catch {
       return {} as PartialSummary;
     }
@@ -148,7 +187,7 @@ async function summarizeMapReduce(
   );
 
   const reduceContent = await callOpenAI(REDUCE_SYSTEM_PROMPT, combinedPartials, model);
-  const finalSummary = JSON.parse(reduceContent) as SessionSummary;
+  const finalSummary = parseJsonResponse<SessionSummary>(reduceContent, "reduce summary");
 
   return {
     title: finalSummary.title || "Untitled Session",
