@@ -23,6 +23,22 @@ import {
   getConfigWithSources,
   setRuntimeOverrides,
 } from "./config.js";
+import {
+  runDaemon,
+  startDaemon,
+  stopDaemon,
+  getDaemonStatus,
+  tailLogs,
+  getFailedSessions,
+  resetFailedSession,
+  resetAllFailedSessions,
+} from "./daemon.js";
+import {
+  installService,
+  uninstallService,
+  isServiceInstalled,
+  getPlatform,
+} from "./daemon-service.js";
 
 const { values, positionals } = parseArgs({
   args: Bun.argv.slice(2),
@@ -35,6 +51,7 @@ const { values, positionals } = parseArgs({
     dry: { type: "boolean", short: "d" },
     "output-dir": { type: "string", short: "o" },
     model: { type: "string", short: "m" },
+    lines: { type: "string", short: "n" },
   },
   allowPositionals: true,
 });
@@ -61,6 +78,15 @@ async function main() {
     case "config":
       await configCommand();
       break;
+    case "daemon":
+      await daemonCommand();
+      break;
+    case "failed":
+      await failedCommand();
+      break;
+    case "retry":
+      await retryCommand();
+      break;
     case "help":
     default:
       showHelp();
@@ -76,6 +102,9 @@ Usage:
   cc-worklog list                 List unprocessed sessions
   cc-worklog test -s <id>         Test summarization for a specific session
   cc-worklog config [cmd] [args]  View or modify configuration
+  cc-worklog daemon <action>      Manage background daemon
+  cc-worklog failed               List failed sessions
+  cc-worklog retry [id]           Retry failed sessions
   cc-worklog help                 Show this help
 
 Options:
@@ -86,7 +115,17 @@ Options:
   -d, --dry              Dry run - print output without saving
   -o, --output-dir <dir> Override output directory for this run
   -m, --model <model>    Override OpenAI model for this run
+  -n, --lines <n>        Number of log lines to show (default: 50)
   -h, --help             Show help
+
+Daemon Commands:
+  cc-worklog daemon run         Run daemon in foreground (for testing)
+  cc-worklog daemon start       Start daemon in background
+  cc-worklog daemon stop        Stop running daemon
+  cc-worklog daemon status      Show daemon status
+  cc-worklog daemon logs        Tail daemon logs
+  cc-worklog daemon install     Install as OS service (launchd/systemd)
+  cc-worklog daemon uninstall   Remove OS service
 
 Config Commands:
   cc-worklog config                      Show all configuration
@@ -103,11 +142,10 @@ Config Keys:
 
 Examples:
   cc-worklog process                     # Process all closed, unprocessed sessions
-  cc-worklog process --all               # Reprocess everything
-  cc-worklog process -p myapp            # Process only myapp sessions
-  cc-worklog process -o ~/Vault/Logs     # Output to custom directory
-  cc-worklog list                        # Show pending sessions
-  cc-worklog test -s a1b2c3 -d           # Dry run (no file written)
+  cc-worklog daemon start                # Start background processing
+  cc-worklog daemon install              # Install as system service
+  cc-worklog failed                      # Show sessions that failed to process
+  cc-worklog retry --all                 # Retry all failed sessions
   cc-worklog config set output.directory ~/Obsidian/Vault/Worklogs
 `);
 }
@@ -359,6 +397,152 @@ async function configCommand() {
       }
       console.log(`\nConfig file: ${getConfigPath()}`);
     }
+  }
+}
+
+/**
+ * Daemon command - manage background daemon
+ */
+async function daemonCommand() {
+  const action = positionals[1];
+
+  switch (action) {
+    case "run": {
+      await runDaemon();
+      break;
+    }
+
+    case "start": {
+      try {
+        const { pid } = await startDaemon();
+        console.log(`Daemon started (PID ${pid})`);
+        console.log("View logs with: cc-worklog daemon logs");
+      } catch (error) {
+        console.error(`Error: ${(error as Error).message}`);
+        process.exit(1);
+      }
+      break;
+    }
+
+    case "stop": {
+      const { stopped } = await stopDaemon();
+      if (stopped) {
+        console.log("Daemon stopped");
+      } else {
+        console.log("Daemon was not running");
+      }
+      break;
+    }
+
+    case "status": {
+      const status = await getDaemonStatus();
+      if (status.running) {
+        console.log(`Daemon running (PID ${status.pid})`);
+        if (status.state) {
+          console.log(`  Started: ${status.state.startedAt}`);
+          console.log(`  Last check: ${status.state.lastCheck}`);
+          console.log(`  Sessions processed: ${status.state.sessionsProcessed}`);
+          console.log(`  Errors: ${status.state.errors}`);
+          console.log(`  Circuit breaker: ${status.state.circuitBreaker.state}`);
+        }
+        if (isServiceInstalled()) {
+          console.log(`  OS service: installed (${getPlatform()})`);
+        }
+      } else {
+        console.log("Daemon not running");
+        if (isServiceInstalled()) {
+          console.log(`OS service is installed but daemon is not running.`);
+          console.log(`Try: cc-worklog daemon start`);
+        }
+      }
+      break;
+    }
+
+    case "logs": {
+      const lines = values.lines ? parseInt(values.lines, 10) : 50;
+      await tailLogs(lines);
+      break;
+    }
+
+    case "install": {
+      await installService();
+      break;
+    }
+
+    case "uninstall": {
+      await uninstallService();
+      break;
+    }
+
+    default: {
+      console.log("Usage: cc-worklog daemon <run|start|stop|status|logs|install|uninstall>");
+      console.log("");
+      console.log("Actions:");
+      console.log("  run         Run daemon in foreground (for testing)");
+      console.log("  start       Start daemon in background");
+      console.log("  stop        Stop running daemon");
+      console.log("  status      Show daemon status");
+      console.log("  logs        Tail daemon logs (-n for line count)");
+      console.log("  install     Install as OS service (launchd/systemd)");
+      console.log("  uninstall   Remove OS service");
+      process.exit(1);
+    }
+  }
+}
+
+/**
+ * Failed command - list failed sessions
+ */
+async function failedCommand() {
+  const failed = await getFailedSessions();
+
+  if (failed.length === 0) {
+    console.log("No failed sessions.");
+    return;
+  }
+
+  console.log(`Found ${failed.length} failed session(s):\n`);
+
+  for (const session of failed) {
+    const date = session.lastAttempt.split("T")[0];
+    console.log(`  ${session.sessionId.slice(0, 8)}  ${date}  (${session.attempts} attempts)`);
+    console.log(`    Error: ${session.lastError.slice(0, 60)}${session.lastError.length > 60 ? "..." : ""}`);
+  }
+
+  console.log("");
+  console.log("To retry a session:  cc-worklog retry <session-id>");
+  console.log("To retry all:        cc-worklog retry --all");
+}
+
+/**
+ * Retry command - retry failed sessions
+ */
+async function retryCommand() {
+  const sessionId = positionals[1];
+
+  if (values.all) {
+    const count = await resetAllFailedSessions();
+    if (count > 0) {
+      console.log(`Reset ${count} failed session(s) for retry.`);
+      console.log("Run 'cc-worklog process' or start the daemon to process them.");
+    } else {
+      console.log("No failed sessions to retry.");
+    }
+    return;
+  }
+
+  if (!sessionId) {
+    console.log("Usage: cc-worklog retry <session-id>");
+    console.log("       cc-worklog retry --all");
+    process.exit(1);
+  }
+
+  const success = await resetFailedSession(sessionId);
+  if (success) {
+    console.log(`Session reset for retry.`);
+    console.log("Run 'cc-worklog process' or start the daemon to process it.");
+  } else {
+    console.log(`No failed session found matching: ${sessionId}`);
   }
 }
 

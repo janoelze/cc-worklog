@@ -194,21 +194,5 @@ export async function summarizeSession(
     return summarizeMapReduce(fullTranscript, session, model);
   }
 
-  try {
-    return await summarizeSinglePass(transcript, model);
-  } catch (error) {
-    // Fallback if API call or parsing fails
-    console.error("Summarization failed:", (error as Error).message);
-    return {
-      title: "Session Summary",
-      summary: `Session in ${session.projectSlug} with ${session.prompts.length} prompts.`,
-      whatWasDone: session.prompts.map((p) => p.text.slice(0, 100)),
-      filesChanged: session.filesEdited.map((f) => ({
-        path: f.path,
-        change: "edited",
-      })),
-      decisions: [],
-      errors: [],
-    };
-  }
+  return await summarizeSinglePass(transcript, model);
 }

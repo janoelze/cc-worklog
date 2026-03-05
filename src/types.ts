@@ -87,11 +87,59 @@ export interface ProcessedSession {
   outputFile: string;
 }
 
+export interface FailedSession {
+  attempts: number;
+  lastAttempt: string;
+  lastError: string;
+  canRetryAfter?: string;
+}
+
+export interface RetryingSession {
+  attempts: number;
+  lastAttempt: string;
+  lastError: string;
+  nextAttempt: string;
+}
+
+export interface CircuitBreakerState {
+  state: "closed" | "open" | "half-open";
+  failures: number;
+  lastFailure?: string;
+  cooldownUntil?: string;
+}
+
+export interface DaemonState {
+  startedAt: string;
+  lastCheck: string;
+  sessionsProcessed: number;
+  errors: number;
+  circuitBreaker: CircuitBreakerState;
+}
+
 export interface State {
   processed: Record<string, ProcessedSession>;
-  daemon?: {
-    startedAt: string;
-    lastCheck: string;
-    sessionsProcessed: number;
+  failed?: Record<string, FailedSession>;
+  retrying?: Record<string, RetryingSession>;
+  daemon?: DaemonState;
+}
+
+// Daemon configuration
+export interface DaemonConfig {
+  pollInterval: number;       // ms, default 60000
+  sessionTimeout: number;     // ms, default 3600000 (1 hour)
+  logFile: string;
+  pidFile: string;
+  healthFile: string;
+  maxRetries: number;         // per session, default 3
+  circuitBreaker: {
+    failureThreshold: number; // default 5
+    cooldownInitial: number;  // ms, default 60000
+    cooldownMax: number;      // ms, default 1800000 (30min)
+  };
+  backoff: {
+    initialDelay: number;     // ms, default 1000
+    maxDelay: number;         // ms, default 300000 (5min)
+    multiplier: number;       // default 2
+    jitter: number;           // default 0.3
   };
 }
