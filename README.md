@@ -16,11 +16,7 @@ This downloads the pre-built binary to `~/.local/bin`. Make sure it's in your PA
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Requires `OPENAI_API_KEY` in your environment:
-
-```sh
-export OPENAI_API_KEY=your-key
-```
+Requires `OPENAI_API_KEY` in your environment.
 
 ### Uninstall
 
@@ -113,12 +109,6 @@ Install as a system service (survives reboot):
 cc-worklog daemon install   # launchd on macOS, systemd on Linux
 cc-worklog daemon uninstall
 ```
-
-The daemon includes:
-- Circuit breaker (stops API calls after repeated failures)
-- Exponential backoff with jitter
-- Per-session retry tracking (3 attempts before marking failed)
-- Health check file for external monitoring
 
 ## Configuration
 
