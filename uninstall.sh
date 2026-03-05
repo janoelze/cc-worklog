@@ -3,6 +3,17 @@ set -e
 
 INSTALL_DIR="${CC_WORKLOG_INSTALL_DIR:-$HOME/.local/bin}"
 
+# Stop running daemon if PID file exists
+if [ -f "$HOME/.cc-worklog/daemon.pid" ]; then
+  PID=$(cat "$HOME/.cc-worklog/daemon.pid" 2>/dev/null)
+  if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+    echo "Stopping daemon (PID $PID)..."
+    kill "$PID" 2>/dev/null || true
+    sleep 1
+  fi
+  rm -f "$HOME/.cc-worklog/daemon.pid"
+fi
+
 # Uninstall OS service if installed
 if [ "$(uname -s)" = "Darwin" ]; then
   PLIST="$HOME/Library/LaunchAgents/com.cc-worklog.plist"
