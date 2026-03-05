@@ -12,10 +12,13 @@ jobs:
         include:
           - os: macos-latest
             target: darwin-arm64
-          - os: macos-13
+            bun_target: bun-darwin-arm64
+          - os: macos-latest
             target: darwin-x64
+            bun_target: bun-darwin-x64
           - os: ubuntu-latest
             target: linux-x64
+            bun_target: bun-linux-x64
 
     runs-on: ${{ matrix.os }}
 
@@ -30,7 +33,7 @@ jobs:
 
       - name: Build binary
         run: |
-          bun build --compile src/cli.ts --outfile cc-worklog
+          bun build --compile --target=${{ matrix.bun_target }} src/cli.ts --outfile cc-worklog
           chmod +x cc-worklog
           gzip -c cc-worklog > cc-worklog-${{ matrix.target }}.gz
 
