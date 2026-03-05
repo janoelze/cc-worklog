@@ -428,15 +428,24 @@ export async function startDaemon(): Promise<{ pid: number }> {
     throw new Error(`Daemon already running (PID ${status.pid})`);
   }
 
-  const bunPath = process.execPath;
-  const scriptPath = process.argv[1];
   const logDir = dirname(DEFAULT_CONFIG.logFile);
 
   // Ensure log directory exists
   await mkdir(logDir, { recursive: true });
 
+  // Determine how to spawn the daemon
+  // For compiled binaries, process.execPath IS the binary itself
+  // For bun scripts, process.execPath is bun and argv[1] is the script
+  const isCompiledBinary = process.execPath === process.argv[0] ||
+    !process.argv[1]?.endsWith('.ts') && !process.argv[1]?.endsWith('.js');
+
+  const execPath = process.execPath;
+  const args = isCompiledBinary
+    ? ["daemon", "run"]
+    : [process.argv[1], "daemon", "run"];
+
   // Spawn detached process
-  const child = spawn(bunPath, [scriptPath, "daemon", "run"], {
+  const child = spawn(execPath, args, {
     detached: true,
     stdio: ["ignore", "ignore", "ignore"],
     env: {
